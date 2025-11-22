@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Socket.IO Connection Test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 2rem;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      label {
+        font-weight: 600;
+      }
+
+      input,
+      textarea,
+      button {
+        font: inherit;
+        padding: 0.5rem;
+        border-radius: 0.375rem;
+        border: 1px solid #888;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 3rem;
+      }
+
+      button {
+        cursor: pointer;
+        border-color: #2563eb;
+        background: #2563eb;
+        color: white;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      #log {
+        flex: 1;
+        border: 1px solid #aaa;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        font-family: "Fira Code", Consolas, Menlo, monospace;
+        overflow: auto;
+        white-space: pre-wrap;
+        background: rgba(0, 0, 0, 0.04);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Socket.IO Connection Test</h1>
+
+    <label for="socket-url">Socket Server URL</label>
+    <input id="socket-url" type="text" value="http://localhost:3001" />
+
+    <label for="room-name">Room Name</label>
+    <input id="room-name" type="text" placeholder="Enter room name" />
+
+    <label for="room-password">Room Password</label>
+    <input id="room-password" type="password" placeholder="Enter room password" />
+
+    <label for="sender-id">Sender Id (optional)</label>
+    <input id="sender-id" type="text" placeholder="Enter sender id" />
+
+    <label for="message-input">Message</label>
+    <textarea id="message-input" rows="3" placeholder="Type a message"></textarea>
+
+    <div>
+      <button id="connect-btn">Connect</button>
+      <button id="disconnect-btn" disabled>Disconnect</button>
+      <button id="send-message-btn" disabled>Send Message</button>
+    </div>
+
+    <section id="log" aria-live="polite"></section>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+      const connectBtn = document.querySelector("#connect-btn");
+      const disconnectBtn = document.querySelector("#disconnect-btn");
+      const sendMessageBtn = document.querySelector("#send-message-btn");
+      const logEl = document.querySelector("#log");
+      const socketUrlInput = document.querySelector("#socket-url");
+      const roomInput = document.querySelector("#room-name");
+      const passwordInput = document.querySelector("#room-password");
+      const senderInput = document.querySelector("#sender-id");
+      const messageInput = document.querySelector("#message-input");
+      let socket;
+      let locationIntervalId;
+      const LOCATION_EVENT = "user-location";
+      const JOIN_ROOM_EVENT = "join-room";
+      const ROOM_MESSAGE_EVENT = "room-message";
+      const LOCATION_INTERVAL_MS = 5000;
+
+      const log = (message) => {
+        const timestamp = new Date().toLocaleTimeString();
+        logEl.textContent += `[${timestamp}] ${message}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      const setConnected = (isConnected) => {
+        connectBtn.disabled = isConnected;
+        disconnectBtn.disabled = !isConnected;
+        sendMessageBtn.disabled = !isConnected;
+      };
+
+      const getRoomCredentials = () => {
+        const roomName = roomInput.value.trim();
+        const password = passwordInput.value;
+        return { roomName, password };
+      };
+
+      const getSenderId = () => senderInput.value.trim();
+
+      const emitLocation = (position) => {
+        if (!socket || !socket.connected) {
+          return;
+        }
+        const { roomName } = getRoomCredentials();
+        if (!roomName) {
+          log("Cannot send location without a room name.");
+          return;
+        }
+        const { latitude, longitude, accuracy } = position.coords;
+        socket.emit(LOCATION_EVENT, {
+          roomName,
+          latitude,
+          longitude,
+          accuracy,
+          timestamp: position.timestamp,
+        });
+        log(`Location sent: lat ${latitude.toFixed(5)}, lng ${longitude.toFixed(5)}`);
+      };
+
+      const handleLocationError = (error) => {
+        log(`Location error: ${error.message}`);
+      };
+
+      const requestLocation = () => {
+        if (!navigator.geolocation) {
+          log("Geolocation is not supported in this browser.");
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(emitLocation, handleLocationError, {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0,
+        });
+      };
+
+      const startLocationUpdates = () => {
+        if (locationIntervalId) {
+          return;
+        }
+        requestLocation();
+        locationIntervalId = setInterval(requestLocation, LOCATION_INTERVAL_MS);
+        log("Started location updates.");
+      };
+
+      const stopLocationUpdates = () => {
+        if (!locationIntervalId) {
+          return;
+        }
+        clearInterval(locationIntervalId);
+        locationIntervalId = undefined;
+        log("Stopped location updates.");
+      };
+
+      const joinRoom = () => {
+        if (!socket) {
+          return Promise.reject(new Error("Socket not initialized"));
+        }
+        const { roomName, password } = getRoomCredentials();
+        return new Promise((resolve, reject) => {
+          socket.emit(JOIN_ROOM_EVENT, { roomName, password }, (response) => {
+            if (response?.success) {
+              log(`Joined room ${roomName}`);
+              resolve();
+              return;
+            }
+            const message = response?.message || "Failed to join room.";
+            reject(new Error(message));
+          });
+        });
+      };
+
+      const sendRoomMessage = () => {
+        if (!socket || !socket.connected) {
+          log("Cannot send message: not connected.");
+          return;
+        }
+        const { roomName } = getRoomCredentials();
+        if (!roomName) {
+          log("Please enter a room name before sending messages.");
+          return;
+        }
+        const message = messageInput.value.trim();
+        if (!message) {
+          log("Please enter a message before sending.");
+          return;
+        }
+        const payload = { roomName, message };
+        const senderId = getSenderId();
+        if (senderId) {
+          payload.senderId = senderId;
+        }
+        socket.emit(ROOM_MESSAGE_EVENT, payload);
+        log(`Message sent: ${message}`);
+        messageInput.value = "";
+      };
+
+      connectBtn.addEventListener("click", () => {
+        if (socket && socket.connected) {
+          log("Already connected.");
+          return;
+        }
+        const url = socketUrlInput.value.trim();
+        if (!url) {
+          log("Please enter a socket server URL.");
+          return;
+        }
+        const { roomName, password } = getRoomCredentials();
+        if (!roomName) {
+          log("Please enter a room name.");
+          return;
+        }
+        if (!password) {
+          log("Please enter a room password.");
+          return;
+        }
+        log(`Connecting to ${url} ...`);
+        socket = io(url, { transports: ["websocket"] });
+        socket.on("connect", async () => {
+          log(`Connected with id ${socket.id}`);
+          setConnected(true);
+          try {
+            await joinRoom();
+            startLocationUpdates();
+          } catch (error) {
+            log(`Join room failed: ${error.message}`);
+            socket.disconnect();
+          }
+        });
+        socket.on("disconnect", (reason) => {
+          log(`Disconnected: ${reason}`);
+          setConnected(false);
+          stopLocationUpdates();
+        });
+        socket.on("connect_error", (err) => {
+          log(`Connection error: ${err.message}`);
+        });
+        socket.on(ROOM_MESSAGE_EVENT, (payload) => {
+          const senderId = payload.senderId || "unknown";
+          log(`Message received from ${senderId}: ${payload.message}`);
+        });
+      });
+
+      disconnectBtn.addEventListener("click", () => {
+        if (!socket) {
+          log("Socket not initialized.");
+          return;
+        }
+        log("Disconnecting...");
+        socket.disconnect();
+        stopLocationUpdates();
+      });
+
+      sendMessageBtn.addEventListener("click", () => {
+        sendRoomMessage();
+      });
+
+      messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          sendRoomMessage();
+        }
+      });
+    </script>
+  </body>
+</html>
+
