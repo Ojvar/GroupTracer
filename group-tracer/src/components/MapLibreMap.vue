@@ -34,7 +34,6 @@ onMounted(() => {
     container: mapContainer.value,
     zoom: 7,
     center: props.startLocation,
-    // pitch: 70,
     hash: true,
     style: {
       version: 8,
@@ -46,12 +45,36 @@ onMounted(() => {
           attribution: props.attribution,
           maxzoom: 19,
         },
+        // local-points to be added after load
       },
-      layers: [{ id: "osm", type: "raster", source: "osm" }],
+      layers: [
+        { id: "osm", type: "raster", source: "osm" },
+        // point layer added after load
+      ],
       sky: {},
     },
     maxZoom: props.maxZoom,
     maxPitch: props.maxPitch,
+  });
+
+  map.on("load", async () => {
+    if (!map) return;
+    await updateGeoJsonSource(map);
+    map.addLayer({
+      id: "local-points-layer",
+      type: "circle",
+      source: "local-points",
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "#eb4034",
+        "circle-opacity": 0.7,
+      },
+    });
+  });
+
+  map.on("moveend", async () => {
+    if (!map) return;
+    await updateGeoJsonSource(map);
   });
 
   map.addControl(
@@ -73,7 +96,7 @@ const updateMarkers = () => {
   markers.forEach((marker) => marker.remove());
   markers =
     props.markers?.map((marker) =>
-      new maplibregl.Marker().setLngLat(marker).addTo(map!)
+      new maplibregl.Marker().setLngLat(marker).addTo(map as maplibregl.Map)
     ) ?? [];
 };
 
@@ -86,6 +109,42 @@ onBeforeUnmount(() => {
   markers = [];
   map?.remove();
 });
+
+async function updateGeoJsonSource(m: maplibregl.Map | null) {
+  if (!m) return;
+  // get map center tile (rough approach)
+  const zoom = Math.round(m.getZoom());
+  const lngLat = m.getCenter();
+  const tile = lngLatToTile(lngLat.lng, lngLat.lat, zoom);
+  const url = `http://localhost:3000/tiles/${zoom}/${tile.x}/${tile.y}`;
+  const geojson = await fetch(url).then(r => r.json());
+
+  if (m.getSource("local-points")) {
+    (m.getSource("local-points") as maplibregl.GeoJSONSource).setData(geojson);
+  } else {
+    m.addSource("local-points", {
+      type: "geojson",
+      data: geojson,
+    });
+  }
+}
+
+function lngLatToTile(lon: number, lat: number, zoom: number) {
+  const z = Math.floor(zoom);
+  const xtile = Math.floor(((lon + 180) / 360) * Math.pow(2, z));
+  const ytile = Math.floor(
+    (
+      (1 -
+        Math.log(
+          Math.tan((lat * Math.PI) / 180) +
+            1 / Math.cos((lat * Math.PI) / 180)
+        ) /
+          Math.PI) /
+        2
+    ) * Math.pow(2, z)
+  );
+  return { x: xtile, y: ytile, z };
+}
 </script>
 
 <template>
