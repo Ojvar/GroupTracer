@@ -60,14 +60,18 @@ onMounted(() => {
   map.on("load", async () => {
     if (!map) return;
     await updateGeoJsonSource(map);
+
+    // Create pin image
+    const pinImg = await map.loadImage("/icons/favicon-128x128.png");
+    map.addImage("pin-icon", pinImg.data);
     map.addLayer({
       id: "local-points-layer",
-      type: "circle",
+      type: "symbol",
       source: "local-points",
-      paint: {
-        "circle-radius": 8,
-        "circle-color": "#eb4034",
-        "circle-opacity": 0.7,
+      layout: {
+        "icon-image": "pin-icon",
+        "icon-size": 1,
+        "icon-allow-overlap": true,
       },
     });
   });
@@ -116,8 +120,9 @@ async function updateGeoJsonSource(m: maplibregl.Map | null) {
   const zoom = Math.round(m.getZoom());
   const lngLat = m.getCenter();
   const tile = lngLatToTile(lngLat.lng, lngLat.lat, zoom);
-  const url = `http://localhost:3000/tiles/${zoom}/${tile.x}/${tile.y}`;
-  const geojson = await fetch(url).then(r => r.json());
+  // const url = `http://localhost:3000/tiles/${zoom}/${tile.x}/${tile.y}`;
+  const url = `http://localhost:3000/billboards/${zoom}/${tile.x}/${tile.y}`;
+  const geojson = await fetch(url).then((r) => r.json());
 
   if (m.getSource("local-points")) {
     (m.getSource("local-points") as maplibregl.GeoJSONSource).setData(geojson);
@@ -133,15 +138,13 @@ function lngLatToTile(lon: number, lat: number, zoom: number) {
   const z = Math.floor(zoom);
   const xtile = Math.floor(((lon + 180) / 360) * Math.pow(2, z));
   const ytile = Math.floor(
-    (
-      (1 -
-        Math.log(
-          Math.tan((lat * Math.PI) / 180) +
-            1 / Math.cos((lat * Math.PI) / 180)
-        ) /
-          Math.PI) /
-        2
-    ) * Math.pow(2, z)
+    ((1 -
+      Math.log(
+        Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)
+      ) /
+        Math.PI) /
+      2) *
+      Math.pow(2, z)
   );
   return { x: xtile, y: ytile, z };
 }

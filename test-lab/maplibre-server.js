@@ -107,10 +107,9 @@ function createCircle([lon, lat], radiusInMeters = 250, steps = 32) {
 // Generate N random circle polygons inside a bbox
 function randomCirclesInBBox(bbox, count = 20) {
   const { min_lon, min_lat, max_lon, max_lat } = bbox;
-
   const step = (max_lon - min_lon) / count;
-
   const features = [];
+
   for (let i = 0; i < count; i++) {
     const lon = min_lon + i * step * (max_lon - min_lon);
     const lat = min_lat + i * step * (max_lat - min_lat);
@@ -121,16 +120,12 @@ function randomCirclesInBBox(bbox, count = 20) {
       properties: { id: i, value: Math.random() },
     });
   }
-
-  return {
-    type: "FeatureCollection",
-    features,
-  };
+  return { type: "FeatureCollection", features };
 }
 
 // API route
 app.use(cors());
-app.get("/tiles/:z/:x/:y", (req, res) => {
+app.get("/billboards/:z/:x/:y", (req, res) => {
   const { x, y, z } = req.params;
 
   const bbox = tileToBBox(Number(x), Number(y), Number(z));

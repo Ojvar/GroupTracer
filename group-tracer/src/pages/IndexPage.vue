@@ -30,11 +30,10 @@ import { ref } from "vue";
 const { $t, languages, setLang } = useLocale();
 
 const markers = ref<[number, number][]>([
-  [49.99, 36.3],
-  [49.99, 36.4],
+  // [50.014524735882404, 36.2586082278624],
 ]);
 
-setTimeout(() => {
-  markers.value = [...markers.value, [49.99, 36.2]];
-}, 3000);
+// setTimeout(() => {
+//   markers.value = [...markers.value, [49.99, 36.2]];
+// }, 3000);
 </script>
